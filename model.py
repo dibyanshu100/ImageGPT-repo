@@ -24,7 +24,7 @@ class Config:
         self.batch_size = None
         for k, v in config.items():
             setattr(self, k, v)
-        self.device = torch.device("mps")
+        self.device = torch.device("cuda")
 
 class Embeddings(nn.Module):
     def __init__(self, config):

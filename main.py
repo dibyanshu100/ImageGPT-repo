@@ -2,7 +2,7 @@ import yaml
 import numpy as np
 from tqdm import tqdm
 import torch.optim as optim
-from utils import Kmeans, quantize, convert_to_sequence, sample_image, set_optimizer, set_scheduler
+from utils import Kmeans, quantize, convert_to_sequence, sample_image, set_optimizer, set_scheduler, sample_and_plot_images
 import matplotlib.pyplot as plt
 import torchvision
 import torch.distributed
@@ -22,9 +22,9 @@ if __name__ == '__main__':
     model_device = next(model.parameters()).device
     print(f"Model is on device: {model_device}")
 
-    #optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    optimizer = set_optimizer(config, model)
-    scheduler = set_scheduler(config, optimizer)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    #optimizer = set_optimizer(config, model)
+    #scheduler = set_scheduler(config, optimizer)
 
     # DDP
     # model = model.to(args.local_rank)
@@ -77,7 +77,7 @@ if __name__ == '__main__':
         model.eval()
         epoch_test_loss = 0
         with torch.no_grad():
-            for batch in test_loader:
+            for batch,_ in test_loader:
                 quantized_batch = quantize(batch, clusters)
                 sequence = convert_to_sequence(quantized_batch)
                 sequence = sequence.to(config.device)
@@ -89,18 +89,29 @@ if __name__ == '__main__':
         test_losses.append(epoch_test_loss / len(test_loader))
 
 
-
-    # Sample an image
-    sampled_image = sample_image(model, config, clusters, device = config.device)
-    print(sampled_image)
-
-    # Convert to a format suitable for visualization (e.g., [0, 1] range)
-    plt.imshow(sampled_image, cmap='gray')
-    plt.show()
-
     # loss graph
-    plt.plot(epochs,train_losses)
-    plt.show()
+    plt.plot(epochs, train_losses, color='r', label='Train Loss')
+    plt.plot(epochs, test_losses, color='b', label='Test Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Testing Loss over Epochs')
+    plt.legend()
+    plt.savefig("loss_curve.png")
+
+    # Sample and plot
+    sample_and_plot_images(model, config, clusters, device=config.device, num_images=100)
+
+
+
+    # # Sample an image
+    # sampled_image = sample_image(model, config, clusters, device = config.device)
+    # print(sampled_image)
+
+    # # Convert to a format suitable for visualization (e.g., [0, 1] range)
+    # plt.imshow(sampled_image, cmap='gray')
+    # plt.show()
+
+    
 
 
 

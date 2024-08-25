@@ -8,6 +8,7 @@ from torchvision import datasets, transforms
 import platform
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ def unquantize(x, centroids):
     return centroids[x]
 
 
-def sample_image(model, config, clusters, device='mps'):
+def sample_image(model, config, clusters, device='cuda'):
 
     model.eval()
     # Initialize the sampled image tensor with zeros
@@ -141,10 +142,8 @@ def sample_image(model, config, clusters, device='mps'):
             quantized_image = quantize(sampled_image.unsqueeze(0), clusters).to(device)
             # Flatten the sampled image to a sequence
             sequence = quantized_image.view(1, -1)                                       # (1, 784)
-            print("Seq: ",sequence)
             # Generate logits from the model
             logits = model(sequence)                                                     # (1, 784, n_clusters)
-            print("Logits: ",logits)
             # Extract logits for the current pixel position
             logits_for_current_pixel = logits[:, i, :]                                   # (1, n_clusters)
             # Apply temperature scaling to logits
@@ -162,3 +161,96 @@ def sample_image(model, config, clusters, device='mps'):
 
 
     return sampled_image.squeeze().cpu().numpy()
+
+
+def sample_images_batch(model, config, clusters, num_samples=100):
+    model.eval()
+    H, W = config.n_pixels, config.n_pixels
+
+    # Initialize a tensor to store the batch of sampled images
+    all_samples = torch.zeros((num_samples, H, W), dtype=torch.float, device=config.device)
+
+    with torch.no_grad():
+        # Initial sampled image tensor for the batch
+        sampled_images = torch.zeros((num_samples, H, W), dtype=torch.float, device=config.device)
+
+        # For each pixel position, update the sampled images in the batch
+        for i in range(H * W):
+            # Quantize the batch of sampled images
+            quantized_images = quantize(sampled_images.unsqueeze(1), clusters).to(config.device)
+            # Flatten the sampled images to sequences
+            sequences = quantized_images.view(num_samples, -1)  # (num_samples, H*W)
+
+            # Generate logits from the model
+            logits = model(sequences)  # (num_samples, H*W, n_clusters)
+
+            # Extract logits for the current pixel position
+            logits_for_current_pixel = logits[:, i, :]  # (num_samples, n_clusters)
+
+            # Apply temperature scaling to logits
+            temperature = 1.0
+            probs = torch.softmax(logits_for_current_pixel / temperature, dim=-1)  # (num_samples, n_clusters)
+
+            # Sample the next pixel from the distribution
+            cluster_indices = torch.multinomial(probs, num_samples=1).squeeze()  # Sampled cluster indices
+
+            # Unquantize the pixels to get the original values
+            pixel_values = torch.stack([unquantize(idx.item(), clusters) for idx in cluster_indices], dim=0)  # (num_samples, H, W)
+            pixel_values = torch.tensor(pixel_values, dtype=torch.float, device=config.device)
+
+            # Update the sampled images with the new pixel values
+            row, col = divmod(i, H)  # (row, col)
+            sampled_images[:, row, col] = pixel_values[:, row, col]
+
+        # Convert the tensor to numpy and ensure values are binary
+        numpy_images = sampled_images.cpu().numpy()
+        numpy_images = (numpy_images > 0.5).astype(np.float32)  # Ensure binary values (0 or 1)
+        numpy_images = numpy_images[..., np.newaxis]  # Add channel dimension
+
+    return numpy_images
+
+
+
+def plot_sampled_images(images, num_images_per_row=10, filename="sampled_images_grid.png"):
+   
+    num_samples, H, W, _ = images.shape
+
+    # Create a figure to hold the grid of images
+    fig, axes = plt.subplots(num_images_per_row, num_images_per_row, figsize=(10, 10))
+    
+    # Loop through each sampled image and plot it in the grid
+    for i in range(num_images_per_row):
+        for j in range(num_images_per_row):
+            index = i * num_images_per_row + j
+            if index < num_samples:
+                axes[i, j].imshow(images[index].squeeze(), cmap='gray')
+                axes[i, j].axis('off')  # Hide axis for better visualization
+    
+    # Adjust layout and save the figure
+    plt.subplots_adjust(wspace=0.1, hspace=0.1)
+    plt.savefig(filename)
+    plt.show()
+
+
+
+def sample_and_plot_images(model, config, clusters, device='cuda', num_images=100):
+    images = []
+    for _ in range(num_images):
+        sampled_image = sample_image(model, config, clusters, device)
+        images.append(sampled_image)
+
+    # Create a figure with 10x10 grid
+    fig, axes = plt.subplots(nrows=10, ncols=10, figsize=(10, 10))
+
+    for i, ax in enumerate(axes.flat):
+        # Display each image in the grid
+        ax.imshow(images[i], cmap='gray')
+        ax.axis('off')  # Hide the axes
+
+    # Adjust layout and save the grid of images as a PNG file
+    plt.tight_layout()
+    plt.savefig('sampled_images_grid.png')
+    plt.show()
+
+
+
