@@ -1,0 +1,15 @@
+batch_size: 128
+epochs: 5
+total_steps: 4690
+warmup_steps: 500
+learning_rate: 0.0001
+weight_decay: 0.1
+betas: [0.9, 0.95]
+d_model: 12
+n_heads: 4
+n_layers: 4
+n_pixels: 28
+n_clusters: 15
+p_drop: 0.1
+make_cluster: False
+device: 'mps'
